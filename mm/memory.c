@@ -83,6 +83,8 @@ EXPORT_SYMBOL(max_mapnr);
 EXPORT_SYMBOL(mem_map);
 #endif
 
+//char comflag[1048576];
+
 /*
  * A number of key systems in x86 including ioremap() rely on the assumption
  * that high_memory defines the upper bound on direct map memory, then end
@@ -1705,7 +1707,7 @@ long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 
 	VM_BUG_ON(!!pages != !!(gup_flags & FOLL_GET));
 
-	/* 
+	/*
 	 * Require read or write permissions.
 	 * If FOLL_FORCE is set, we only require the "MAY" flags.
 	 */
@@ -3012,6 +3014,9 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	int exclusive = 0;
 	int ret = 0;
 
+	unsigned int paddr;
+	unsigned int r0;
+
 	if (!pte_unmap_same(mm, pmd, page_table, orig_pte))
 		goto out;
 
@@ -3159,8 +3164,48 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 		goto out;
 	}
 
+
 	/* No need to invalidate - it was non-present before */
 	update_mmu_cache(vma, address, page_table);
+
+	paddr = page_to_pfn(page);
+	/*if(comflag[paddr]=='1'){
+             printk("this page is a compment page previously\n");
+            printk("\n comflag[%lu]%c \n",paddr,comflag[paddr]);
+            comflag[paddr]='0';
+             memset(1048576+address,1,4096);
+            printk("\n %c \n",comflag[paddr]);
+            //clear_page(page);
+            memset((void *)(page->mapping), 0, PAGE_SIZE);
+            printk("clear_page(page) is done !\n");
+        }*/
+	if (vma->vm_mm->has_comp == 1) { 
+		printk("inside do_swap_page\n");
+		printk("address is %lu\n", address);
+		if (0x00011000 <= address && address < 0x00012000) {
+                       // comflag[paddr]='1';
+                       // printk("\n comflag[%lu]%c \n",paddr,comflag[paddr]);
+			printk("this address is in comp\n");
+			printk("page frame number is %x\n", paddr);
+			printk("mm in do_anonymous_page is %lx\n", (unsigned long)vma->vm_mm);
+			asm volatile(
+				"mov     %0, r0\n\t"
+				"mov     r0, #5\n\t" /*comp_id*/
+				"rct     r0, r43\n\t"
+				"mov     r0, %1\n\t" /*phys_addr*/
+				"rct     r0, r46\n\t"
+				"mov     r0, %2\n\t" /*virt_addr*/
+				"rct     r0, r49\n\t"
+				"cpage_map\n\t"
+				"mov     r0, %3"
+				:"=r"(r0)
+				:"r"(paddr),"r"(address),"r"(r0)
+				:
+			);
+			printk("complete cpage_map\n");
+		}
+	}
+
 unlock:
 	pte_unmap_unlock(page_table, ptl);
 out:
@@ -3225,6 +3270,8 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct page *page;
 	spinlock_t *ptl;
 	pte_t entry;
+	unsigned long paddr;
+	unsigned int r0;
 
 	pte_unmap(page_table);
 
@@ -3268,6 +3315,34 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	inc_mm_counter_fast(mm, MM_ANONPAGES);
 	page_add_new_anon_rmap(page, vma, address);
+
+	paddr = page_to_pfn(page);
+
+	if (vma->vm_mm->has_comp == 1) {
+		printk("inside do_anonymous_page\n");
+		printk("address is %lu\n", address);
+		if (0x00011000 <= address && address < 0x00012000) {
+			printk("this address is in comp\n");
+			printk("page frame number is %x\n", paddr);
+			printk("mm in do_anonymous_page is %lx\n", (unsigned long)vma->vm_mm);
+			asm volatile(
+				"mov     %0, r0\n\t"
+				"mov     r0, #5\n\t"    //comp_id
+				"rct     r0, r43\n\t"
+				"mov     r0, %1\n\t"     //phys_addr
+				"rct     r0, r46\n\t"
+				"mov     r0, %2\n\t"    //virt_addr
+				"rct     r0, r49\n\t"
+				"cpage_map\n\t"
+				"mov     r0, %3"
+				:"=r"(r0)
+				:"r"(paddr),"r"(address),"r"(r0)
+				:
+			);
+			printk("complete cpage_map\n");
+		}
+	}
+
 setpte:
 	set_pte_at(mm, address, page_table, entry);
 
@@ -3313,6 +3388,9 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct vm_fault vmf;
 	int ret;
 	int page_mkwrite = 0;
+
+	unsigned int paddr;
+	unsigned int r0;
 
 	/*
 	 * If we do COW later, allocate page befor taking lock_page()
@@ -3474,6 +3552,32 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 			page_cache_release(vmf.page);
 	}
 
+	paddr = page_to_pfn(page);
+	if (vma->vm_mm->has_comp == 1) {
+		printk("inside __do_fault\n");
+		printk("address is %lu\n", address);
+		if (0x00011000 <= address && address < 0x00012000) {
+			printk("this address is in comp\n");
+			printk("page frame number is %x\n", paddr);
+			printk("mm in __do_fault is %lx\n", (unsigned long)vma->vm_mm);
+			asm volatile(
+				"mov     %0, r0\n\t"
+				"mov     r0, #5\n\t" /*comp_id*/
+				"rct     r0, r43\n\t"
+				"mov     r0, %1\n\t" /*phys_addr*/
+				"rct     r0, r46\n\t"
+				"mov     r0, %2\n\t" /*virt_addr*/
+				"rct     r0, r49\n\t"
+				"cpage_map\n\t"
+				"mov     r0, %3"
+				:"=r"(r0)
+				:"r"(paddr),"r"(address),"r"(r0)
+				:
+			);
+			printk("complete cpage_map\n");
+		}
+	}
+
 	return ret;
 
 unwritable_page:
@@ -3556,6 +3660,9 @@ int do_numa_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	int target_nid;
 	bool migrated = false;
 	int flags = 0;
+
+	unsigned int paddr;
+	unsigned int r0;
 
 	/*
 	* The "pte" at this point cannot be used safely without
